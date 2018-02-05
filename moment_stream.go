@@ -351,6 +351,11 @@ func (cm *MomentStream) GetMean(i int) []float64 {
 	return cm.project(cm.mean[i])
 }
 
+// GetN returns the sample size for y=i.
+func (cm *MomentStream) GetN(i int) int {
+     return cm.ny[i]
+}
+
 // GetCov returns the conditional covariance for y=i.  If a projection
 // has been set, the projected conditional covariance is returned.
 func (cm *MomentStream) GetCov(i int) []float64 {
