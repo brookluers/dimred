@@ -1,9 +1,9 @@
 package dimred
 
 import (
-	"fmt"
+	//"fmt"
 	"log"
-	//"math"
+	"math"
 	"os"
 
 	"gonum.org/v1/gonum/floats"
@@ -51,13 +51,14 @@ func NewLDA(data dstream.Dstream, response string, nclass int) *LDA {
 func (lda *LDA) Done() *LDA {
 	lda.MomentStream.Done()
 	lda.calcMargMean()
-	fmt.Printf("margmean = %v\n", lda.MomentStream.GetMargMean())
-	fmt.Printf("GetMean(0) = %v\n", lda.MomentStream.GetMean(0))
 	lda.calcMargCov()    
-	fmt.Printf("Nobs = %v\n", lda.Data.NumObs())
 	lda.calcPi()
 	lda.calcWithinCov()
 	lda.calcBetweenCov()
+	if lda.log != nil {
+	   lda.log.Printf("proportion in each class: %v\n", lda.GetPi())
+	   lda.log.Printf("Nobs = %v\n", lda.Data.NumObs())
+	}
 	return lda
 }
 
@@ -71,9 +72,13 @@ func (lda *LDA) calcPi() *LDA {
      return lda
 }
 
+// GetPi returns the sample proportions for each class
+func (lda *LDA) GetPi() []float64 {
+     return lda.pihat
+}
+
 // calcWithinCov computes the within-class covariance matrix
 func (lda *LDA) calcWithinCov() *LDA {
-     fmt.Printf("called calcWithinCov()\n")
      p := lda.Dim()
      pp := p * p
      N := lda.Data.NumObs()
@@ -123,22 +128,118 @@ func (lda *LDA) calcBetweenCov() *LDA {
      return lda
 }
 
+func flipMat(p int) *mat.Dense {
+     m := mat.NewDense(p, p, nil)
+     colpos := make([]int, p)
+     for i := 0; i < p; i++{
+     	 colpos[i] = p - i - 1
+     	 for j := 0; j < p; j++{
+	     if j==colpos[i] {
+	     	m.Set(i, j, 1)
+	     } else {
+	       m.Set(i, j, 0)
+	     }
+	 }
+     }
+     return m
+}
+
+func min(a, b int) int {
+     if a < b {
+     	return a
+     }
+     return b
+}
+
+func diagMat(v []float64) *mat.Dense {
+	n := len(v)
+	m := mat.NewDense(n, n, nil)
+	for i := 0; i < n; i++ {
+		m.Set(i, i, v[i])
+	}
+	return m
+}
+
 func (lda *LDA) Fit() {
 
 	p := lda.Dim()
-	// pp := p * p
+	ndir := min(lda.k - 1, p)
 
-	margcov := mat.NewSymDense(p, lda.GetMargCov())
-	msr := new(mat.Cholesky)
-	if ok := msr.Factorize(margcov); !ok {
-		print("Can't factorize marginal covariance")
-		panic("")
+	weig := new(mat.EigenSym)
+	ww := mat.NewSymDense(p, lda.GetWCov())
+	bb := mat.NewSymDense(p, lda.GetBCov())
+	
+	ok := weig.Factorize(ww, true)
+	if !ok {
+	   panic("can't factorize within-class covariance")
+	}
+	wevals := weig.Values(nil)
+	wevec := mat.NewDense(p, p, nil)
+	wevec.EigenvectorsSym(weig)
+	
+	wU := mat.NewDense(p, p, nil)
+	pFlip := flipMat(p)
+	wU.Mul(wevec, pFlip)
+	// wU_fmt := mat.Formatted(wU, mat.Prefix("    "), mat.Squeeze())
+	// fmt.Printf("wU = %v\n", wU_fmt)
+	
+	wev_inv2 := make([]float64, p)
+	for j := 0; j < p; j++{
+	    wev_inv2[p - j - 1] = math.Pow(wevals[j], -0.5)
+	}
+	// fmt.Printf("inverse square root of eigenvalues: %v\n\n", wev_inv2)
+	di2 := diagMat(wev_inv2)
+	// di2_fmt := mat.Formatted(di2, mat.Prefix("    "), mat.Squeeze())
+	// fmt.Printf("di2 = %v\n\n", di2_fmt)
+	wi2 := mat.NewDense(p, p, nil)
+	wi2.Mul(di2, wU.T())
+	// wi2_fmt := mat.Formatted(wi2, mat.Prefix("    "), mat.Squeeze())
+	// fmt.Printf("wi2 = %v\n\n", wi2_fmt)
+	t1 := mat.NewDense(p, p, nil)
+	t1.Mul(wi2, bb)
+	bstar := mat.NewDense(p, p, nil)
+	bstar.Mul(t1, wi2.T())
+	// bstar_fmt := mat.Formatted(bstar, mat.Prefix("     "), mat.Squeeze())
+	// fmt.Printf("Bstar = %v\n\n", bstar_fmt)
+	t2 := make([]float64, p*p)
+	for i := 0; i < p; i++{
+	    for j := 0; j < p; j++{
+	    	t2[i * p + j] = bstar.At(i, j)
+	    }
+	}
+	bstarsym := mat.NewSymDense(p, t2)
+	bstar_eig := new(mat.EigenSym)
+	ok = bstar_eig.Factorize(bstarsym, true)
+	if !ok {
+	   panic("can't factorize sphered between-class covariance")
+	}
+	bstar_evec := mat.NewDense(p, p, nil)
+	bstar_evec.EigenvectorsSym(bstar_eig)
+	bstar_evec.Mul(bstar_evec, pFlip)
+	// bstar_evec_fmt := mat.Formatted(bstar_evec, mat.Prefix("    "), mat.Squeeze())
+	// fmt.Printf("bstar_evec = %v\n\n", bstar_evec_fmt)
+	
+	coord := mat.NewDense(p, ndir, nil)
+	coord.Mul(bstar_evec.Slice(0, p, 0, ndir).T(), wi2.T())
+	
+	lda.ldirs = make([][]float64, ndir)
+	for j := 0; j < ndir; j++{
+	    lda.ldirs[j] = make([]float64, p)
+	    lda.ldirs[j] = coord.RawRowView(j)
 	}
 
-	// lda.ldirs = make([][]float64,min(k-1, p))
-
 	if lda.log != nil {
-	   lda.log.Printf("Writing to the log file\n")
+	   coord_fmt := mat.Formatted(coord, mat.Prefix("    "), mat.Squeeze())
+	   wevec_fmt := mat.Formatted(wevec, mat.Prefix("    "), mat.Squeeze())
+	   bb_fmt := mat.Formatted(bb, mat.Prefix("     "), mat.Squeeze())
+	   lda.log.Printf("B = %v\n\n", bb_fmt)
+	   ww_fmt := mat.Formatted(ww, mat.Prefix("     "), mat.Squeeze())
+	   lda.log.Printf("W = %v\n\n", ww_fmt)
+	   lda.log.Printf("Eigenvectors of W = %v\n\n", wevec_fmt)
+	   lda.log.Printf("W eigenvalues: %v\n\n", wevals)
+	   lda.log.Printf("coord = %v\n\n", coord_fmt)
+	   lda.log.Printf("ndir = %v\n", ndir)
+	   lda.log.Printf("lda.ldirs = %v\n", lda.ldirs)	
 	}
 }
 
