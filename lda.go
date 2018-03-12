@@ -1,7 +1,7 @@
 package dimred
 
 import (
-	//"fmt"
+	"fmt"
 	"log"
 	"math"
 	"os"
@@ -29,6 +29,9 @@ type LDA struct {
 	
 	// The number of classes
 	k int
+
+	// The number of LDA directions
+	ndir int
 
 }
 
@@ -92,6 +95,10 @@ func (lda *LDA) calcWithinCov() *LDA {
      lda.wmat = w
 
      return lda
+}
+
+func (lda *LDA) GetNDir() int {
+     return lda.ndir
 }
 
 func (lda *LDA) GetWCov() []float64 {
@@ -163,7 +170,11 @@ func diagMat(v []float64) *mat.Dense {
 func (lda *LDA) Fit() {
 
 	p := lda.Dim()
-	ndir := min(lda.k - 1, p)
+	lda.ndir = min(lda.k - 1, p)
+	if lda.log != nil {
+	   lda.log.Printf("ndir = %v\n", lda.ndir)
+	   lda.log.Printf("p = %v\n", p)
+	}
 
 	weig := new(mat.EigenSym)
 	ww := mat.NewSymDense(p, lda.GetWCov())
@@ -216,14 +227,27 @@ func (lda *LDA) Fit() {
 	bstar_evec := mat.NewDense(p, p, nil)
 	bstar_evec.EigenvectorsSym(bstar_eig)
 	bstar_evec.Mul(bstar_evec, pFlip)
-	// bstar_evec_fmt := mat.Formatted(bstar_evec, mat.Prefix("    "), mat.Squeeze())
-	// fmt.Printf("bstar_evec = %v\n\n", bstar_evec_fmt)
+
+	bstar_sliced_T := bstar_evec.Slice(0, p, 0, lda.ndir).T()
+	bstar_evec_fmt := mat.Formatted(bstar_sliced_T, 
+		       mat.Prefix("    "), mat.Squeeze())
+	fmt.Printf("bstar_evec.slice...T() = %v\n\n", bstar_evec_fmt)
+	r, c := bstar_sliced_T.Dims()
+	fmt.Printf("...has dimensions %v by %v \n", r, c)
+	wi2_fmt := mat.Formatted(wi2.T(), mat.Prefix("    "), mat.Squeeze())
+	fmt.Printf("wi2.T() = %v\n", wi2_fmt)
+	r, c = wi2.T().Dims()
+	fmt.Printf("...has dimensions %v by %v\n", r, c)
+
 	
-	coord := mat.NewDense(p, ndir, nil)
-	coord.Mul(bstar_evec.Slice(0, p, 0, ndir).T(), wi2.T())
+	coord := mat.NewDense(lda.ndir, p, nil)
+	r, c = coord.Dims()
+	fmt.Printf("coord has dimensions %v by %v\n", r, c)
+
+	coord.Mul(bstar_evec.Slice(0, p, 0, lda.ndir).T(), wi2.T())
 	
-	lda.ldirs = make([][]float64, ndir)
-	for j := 0; j < ndir; j++{
+	lda.ldirs = make([][]float64, lda.ndir)
+	for j := 0; j < lda.ndir; j++{
 	    lda.ldirs[j] = make([]float64, p)
 	    lda.ldirs[j] = coord.RawRowView(j)
 	}
@@ -238,7 +262,7 @@ func (lda *LDA) Fit() {
 	   lda.log.Printf("Eigenvectors of W = %v\n\n", wevec_fmt)
 	   lda.log.Printf("W eigenvalues: %v\n\n", wevals)
 	   lda.log.Printf("coord = %v\n\n", coord_fmt)
-	   lda.log.Printf("ndir = %v\n", ndir)
+	   lda.log.Printf("ndir = %v\n", lda.ndir)
 	   lda.log.Printf("lda.ldirs = %v\n", lda.ldirs)	
 	}
 }
