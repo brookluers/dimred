@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kshedden/dstream/dstream"
+	"github.com/brookluers/dstream/dstream"
 )
 
 // genred generates a mxn matrix in which columns k1, k1+1 are proportional and

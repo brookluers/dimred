@@ -6,7 +6,7 @@ import (
 
 	"gonum.org/v1/gonum/floats"
 
-	"github.com/kshedden/dstream/dstream"
+	"github.com/brookluers/dstream/dstream"
 )
 
 // NewFullRank returns an allocated FullRank value for the given dstream.
