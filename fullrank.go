@@ -92,6 +92,14 @@ func (fr *FullRank) getcpr() {
 	fr.cpr = cpr
 }
 
+func (fr *FullRank) DimCheck() int {
+     return len(fr.checkpos)
+}
+
+func (fr *FullRank) CPR() []float64 {
+     return fr.cpr
+}
+
 // Done completes configuration.
 func (fr *FullRank) Done() *FullRank {
 
@@ -117,7 +125,7 @@ func (fr *FullRank) Done() *FullRank {
 			drop = append(drop, names[k])
 		}
 	}
-
+	fmt.Printf("Full rank: dropping columns %v\n", drop)
 	fr.rdata = dstream.DropCols(fr.data, drop...)
 
 	return fr
